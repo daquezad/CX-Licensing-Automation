@@ -1,0 +1,25 @@
+# Ignore Excel files
+*.xlsx
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore output and log files
+output_files/
+*.log
+
+# Ignore Streamlit cache
+.streamlit/
+
+# Ignore environment files
+.env
+
+# Ignore notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore OS files
+.DS_Store
+
+# Ignore JSON mapping files if desired (uncomment if you want to ignore local mapping changes)
+# sku_map.json
