@@ -61,6 +61,7 @@ The application compares two Excel files: a PRE-EA workbook and a CSSM export. T
     - **BLUE:** Quantity mismatch
     - **YELLOW:** Date missing/invalid, or PRE-EA expiration after CSSM expiration
     - **GREEN:** All checks pass
+    - **PURPLE:** PRE-EA Expiration Date is earlier than today.
 
 4. **Result Output:**
   - Produces a color-coded Excel workbook highlighting mismatches and issues.

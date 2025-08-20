@@ -10,7 +10,8 @@ def main():
 
     def parse_log_table(log_path):
         log_rows = []
-        row_pattern = re.compile(r"Row (\d+): (.*?)(Marking as (🟥 RED|🟦 BLUE|🟨 YELLOW|🟩 GREEN))\.")
+        # UPDATED REGEX: Added 🟪 PURPLE to the color options
+        row_pattern = re.compile(r"Row (\d+): (.*?)(Marking as (🟥 RED|🟦 BLUE|🟨 YELLOW|🟩 GREEN|🟪 PURPLE))\.")
         try:
             with open(log_path, "r", encoding="utf-8") as f:
                 for line in f:
@@ -40,6 +41,7 @@ def main():
     | 🟦 | BLUE: Quantity mismatch |
     | 🟨 | YELLOW: Date issues |
     | 🟩 | GREEN: All OK |
+    | 🟪 | PURPLE: PRE-EA Expiration Date is earlier than today |
     """)
     st.caption("Upload PRE-EA and CSSM files, manage SKU mapping, and run comparison.")
 
@@ -101,6 +103,13 @@ def main():
         except Exception:
             initial_map = {}
 
+        # Load initial mapping for comparison (duplicate, can be removed if not needed)
+        try:
+            with open(initial_json_path, "r") as f:
+                initial_map = json.load(f)
+        except Exception:
+            initial_map = {}
+
         changes_made = updated_map != initial_map
         if st.button("💾 Save Changes", disabled=not changes_made):
             try:
@@ -142,21 +151,24 @@ def main():
                 with open(cssm_path, "wb") as f:
                     f.write(cssm_file.getvalue())
                 comparator = ExcelFileComparator()
-                out_path, red_rows, blue_rows, yellow_rows, green_rows, elapsed = comparator.compare_and_save(pre_ea_path, cssm_path, updated_map)
+                # UPDATED: Added pink_rows to the returned values
+                out_path, red_rows, blue_rows, yellow_rows, green_rows, pink_rows, elapsed = comparator.compare_and_save(pre_ea_path, cssm_path, updated_map)
                 st.success("Comparison complete. Download the result below.")
                 with open(out_path, "rb") as f:
                     st.download_button("Download compared workbook", data=f.read(), file_name=os.path.basename(out_path), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 comparison_result = out_path
-                summary_stats = (red_rows, blue_rows, yellow_rows, green_rows, elapsed)
+                # UPDATED: Added pink_rows to summary_stats tuple
+                summary_stats = (red_rows, blue_rows, yellow_rows, green_rows, pink_rows, elapsed)
             except Exception as e:
                 st.error(f"Failed to compare files: {e}")
 
     if summary_stats:
-        red_rows, blue_rows, yellow_rows, green_rows, elapsed = summary_stats
+        # UPDATED: Unpacked pink_rows from summary_stats
+        red_rows, blue_rows, yellow_rows, green_rows, pink_rows, elapsed = summary_stats
         st.divider()
         st.header("📊 Comparison Summary")
         st.markdown(f"""
-        **🟥 RED:** {red_rows} &nbsp;&nbsp; **🟦 BLUE:** {blue_rows} &nbsp;&nbsp; **🟨 YELLOW:** {yellow_rows} &nbsp;&nbsp; **🟩 GREEN:** {green_rows}
+        **🟥 RED:** {red_rows} &nbsp;&nbsp; **🟦 BLUE:** {blue_rows} &nbsp;&nbsp; **🟨 YELLOW:** {yellow_rows} &nbsp;&nbsp; **🟩 GREEN:** {green_rows} &nbsp;&nbsp; **🟪 PURPLE:** {pink_rows}
         
         ⏱️ **Total time:** {elapsed:.2f} seconds
         """)
