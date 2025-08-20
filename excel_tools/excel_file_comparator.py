@@ -41,6 +41,7 @@ class ExcelFileComparator:
 
         logger.info("Loaded PRE-EA rows: %d | CSSM rows: %d", len(pre_ea), len(cssm))
         red_rows, blue_rows, yellow_rows, green_rows = 0, 0, 0, 0
+        used_cssm_indices = set() # Tracks used CSSM rows to prevent re-matching
 
         for idx, row in pre_ea.iterrows():
             alc_order_number = row.get('ALC Order Number')
@@ -59,28 +60,68 @@ class ExcelFileComparator:
                     ws.cell(row=excel_row_idx, column=col).fill = RED_FILL
                 red_rows += 1
                 continue
-
             sku_match = get_valid_sku_matches(cssm_matches, pre_ea_migrated_pid_str, pid_to_skus_map)
+
             if sku_match.empty:
                 logger.info("Row %d: No SKU '%s' (or mapped exception) for ALC Order Number '%s' in CSSM. Marking as 🟥 RED.", excel_row_idx, pre_ea_migrated_pid_str, alc_order_number_str)
                 for col in range(1, len(pre_ea.columns) + 1):
                     ws.cell(row=excel_row_idx, column=col).fill = RED_FILL
                 red_rows += 1
                 continue
+# --- START OF IMPROVED SECTION ---
+            quantity_match_found = False
+            matched_cssm_row = None
 
-            cssm_row = sku_match.iloc[0]
-            cssm_qty = cssm_row['Available To Use']
-            try:
-                cssm_qty = int(cssm_qty)
-            except Exception:
-                cssm_qty = None
+            # Iterate through each potential SKU match from the CSSM data
+            for cssm_index, cssm_row_iter in sku_match.iterrows():
+                # Check if this specific CSSM row has already been used for a previous match
+                if cssm_index in used_cssm_indices:
+                    continue  # This CSSM entry is already matched, skip to the next one
 
-            if cssm_qty != pre_ea_qty:
-                logger.info("Row %d: Quantity mismatch (PRE-EA: %s, CSSM: %s). Marking as 🟦 BLUE.", excel_row_idx, pre_ea_qty, cssm_qty)
+                # Safely get and convert the quantity from the CSSM row
+                try:
+                    cssm_qty = int(cssm_row_iter['Available To Use'])
+                except (ValueError, TypeError):
+                    # If conversion fails, this row cannot be a valid quantity match
+                    continue
+
+                # Compare quantities
+                if cssm_qty == pre_ea_qty:
+                    # We found a valid, unused match!
+                    quantity_match_found = True
+                    # Mark this CSSM row's index as used so it can't be matched again
+                    used_cssm_indices.add(cssm_index)
+                    # Store the matched row for the subsequent date comparison
+                    matched_cssm_row = cssm_row_iter
+                    # No need to check other potential SKU matches for this pre_ea row
+                    break
+            
+            # After checking all potential SKU matches, evaluate if one was found
+            if not quantity_match_found:
+                logger.info("Row %d: Quantity mismatch (PRE-EA: %s, CSSM: No available matching quantity). Marking as 🟦 BLUE.", excel_row_idx, pre_ea_qty)
                 for col in range(1, len(pre_ea.columns) + 1):
                     ws.cell(row=excel_row_idx, column=col).fill = BLUE_FILL
                 blue_rows += 1
                 continue
+            else:
+                # A match was found, so we now use the stored 'matched_cssm_row'
+                cssm_row = matched_cssm_row
+# --- END OF IMPROVED SECTION ---
+
+            # cssm_row = sku_match.iloc[0]
+            # cssm_qty = cssm_row['Available To Use']
+
+            # try:
+            #     cssm_qty = int(cssm_qty)
+            # except Exception:
+            #     cssm_qty = None
+
+            # if cssm_qty != pre_ea_qty:
+            #     logger.info("Row %d: Quantity mismatch (PRE-EA: %s, CSSM: %s). Marking as 🟦 BLUE.", excel_row_idx, pre_ea_qty, cssm_qty)
+            #     for col in range(1, len(pre_ea.columns) + 1):
+            #         ws.cell(row=excel_row_idx, column=col).fill = BLUE_FILL
+            #     blue_rows += 1
+            #     continue
 
             pre_ea_exp_date = standardize_date(pre_ea_exp, in_format="%m/%d/%Y")
             cssm_exp_date = standardize_date(cssm_row['Subscription End Date'])
