@@ -7,7 +7,7 @@ from utils.fs_utils import ensure_clean_dir
 from utils.logging_utils import setup_logging
 from utils.mapping_utils import load_pid_to_skus_map, get_valid_sku_matches
 from utils.date_utils import standardize_date
-from utils.colors import RED_FILL, BLUE_FILL, YELLOW_FILL, GREEN_FILL
+from utils.colors import RED_FILL, BLUE_FILL, YELLOW_FILL, GREEN_FILL, PINK_FILL
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -40,7 +40,7 @@ class ExcelFileComparator:
         pre_ea.columns = pre_ea.columns.map(str.strip)
 
         logger.info("Loaded PRE-EA rows: %d | CSSM rows: %d", len(pre_ea), len(cssm))
-        red_rows, blue_rows, yellow_rows, green_rows = 0, 0, 0, 0
+        red_rows, blue_rows, yellow_rows, green_rows, pink_rows = 0, 0, 0, 0, 0
         used_cssm_indices = set() # Tracks used CSSM rows to prevent re-matching
 
         for idx, row in pre_ea.iterrows():
@@ -52,7 +52,17 @@ class ExcelFileComparator:
 
             alc_order_number_str = str(alc_order_number).strip()
             pre_ea_migrated_pid_str = str(pre_ea_migrated_pid).strip()
+            # --- START OF NEW CONDITION: Check if pre_ea_exp is later than today ---
 
+            pre_ea_exp_date_for_check = standardize_date(pre_ea_exp, in_format="%m/%d/%Y")
+            today = datetime.today().date() # Get today's date for comparison
+
+            if pre_ea_exp_date_for_check and pre_ea_exp_date_for_check < today: # Changed from > to <
+                self.logger.info("Row %d: PRE-EA Expiration Date '%s' is earlier than today. Marking as 🟪 PURPLE.", excel_row_idx, pre_ea_exp_date_for_check)
+                for col in range(1, len(pre_ea.columns) + 1):
+                    ws.cell(row=excel_row_idx, column=col).fill = PINK_FILL 
+                pink_rows += 1
+                continue 
             cssm_matches = cssm[cssm['Source Identifier'] == alc_order_number_str]
             if cssm_matches.empty:
                 logger.info("Row %d: ALC Order Number '%s' NOT found in CSSM. Marking as 🟥 RED.", excel_row_idx, alc_order_number_str)
@@ -68,7 +78,7 @@ class ExcelFileComparator:
                     ws.cell(row=excel_row_idx, column=col).fill = RED_FILL
                 red_rows += 1
                 continue
-# --- START OF IMPROVED SECTION ---
+
             quantity_match_found = False
             matched_cssm_row = None
 
@@ -106,22 +116,6 @@ class ExcelFileComparator:
             else:
                 # A match was found, so we now use the stored 'matched_cssm_row'
                 cssm_row = matched_cssm_row
-# --- END OF IMPROVED SECTION ---
-
-            # cssm_row = sku_match.iloc[0]
-            # cssm_qty = cssm_row['Available To Use']
-
-            # try:
-            #     cssm_qty = int(cssm_qty)
-            # except Exception:
-            #     cssm_qty = None
-
-            # if cssm_qty != pre_ea_qty:
-            #     logger.info("Row %d: Quantity mismatch (PRE-EA: %s, CSSM: %s). Marking as 🟦 BLUE.", excel_row_idx, pre_ea_qty, cssm_qty)
-            #     for col in range(1, len(pre_ea.columns) + 1):
-            #         ws.cell(row=excel_row_idx, column=col).fill = BLUE_FILL
-            #     blue_rows += 1
-            #     continue
 
             pre_ea_exp_date = standardize_date(pre_ea_exp, in_format="%m/%d/%Y")
             cssm_exp_date = standardize_date(cssm_row['Subscription End Date'])
@@ -145,8 +139,8 @@ class ExcelFileComparator:
 
         wb.save(out_path)
         logger.info(f"✅ Finished! Saved comparison result as {out_path}")
-        logger.info(f"Summary: 🟥 RED={red_rows} 🟦 BLUE={blue_rows} 🟨 YELLOW={yellow_rows} 🟩 GREEN={green_rows}")
+        logger.info(f"Summary: 🟥 RED={red_rows} 🟦 BLUE={blue_rows} 🟨 YELLOW={yellow_rows} 🟩 GREEN={green_rows} 🟪 PURPLE={pink_rows}")
         logger.info(f"⏱️ Total time: {(datetime.now() - start_time).total_seconds():.2f} seconds")
         for handler in logger.handlers:
             handler.flush()
-        return out_path, red_rows, blue_rows, yellow_rows, green_rows, (datetime.now() - start_time).total_seconds()
+        return out_path, red_rows, blue_rows, yellow_rows, green_rows, pink_rows, (datetime.now() - start_time).total_seconds()
