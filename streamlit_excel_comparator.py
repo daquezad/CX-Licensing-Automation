@@ -2,7 +2,7 @@ import os
 import json
 import streamlit as st
 import pandas as pd
-from excel_tools.excel_file_comparator import ExcelFileComparator
+from excel_tools.excel_file_comparator_dict import ExcelFileComparator
 from utils.mapping_utils import load_pid_to_skus_map
 
 def main():
@@ -42,6 +42,7 @@ def main():
     | 🟨 | YELLOW: Date issues |
     | 🟩 | GREEN: All OK |
     | 🟪 | PURPLE: PRE-EA Expiration Date is earlier than today |
+    | ⬜ | GREY: Found from multiple CSSM Available to use
     """)
     st.caption("Upload PRE-EA and CSSM files, manage SKU mapping, and run comparison.")
 
@@ -152,23 +153,23 @@ def main():
                     f.write(cssm_file.getvalue())
                 comparator = ExcelFileComparator()
                 # UPDATED: Added pink_rows to the returned values
-                out_path, red_rows, blue_rows, yellow_rows, green_rows, pink_rows, elapsed = comparator.compare_and_save(pre_ea_path, cssm_path, updated_map)
+                out_path, green_rows, red_rows, purple_rows, yellow_rows, blue_rows, gray_rows, elapsed = comparator.compute_licensing_files(pre_ea_path, cssm_path, updated_map)
                 st.success("Comparison complete. Download the result below.")
                 with open(out_path, "rb") as f:
                     st.download_button("Download compared workbook", data=f.read(), file_name=os.path.basename(out_path), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 comparison_result = out_path
                 # UPDATED: Added pink_rows to summary_stats tuple
-                summary_stats = (red_rows, blue_rows, yellow_rows, green_rows, pink_rows, elapsed)
+                summary_stats = (green_rows, red_rows, purple_rows, yellow_rows, blue_rows, gray_rows, elapsed)
             except Exception as e:
                 st.error(f"Failed to compare files: {e}")
 
     if summary_stats:
         # UPDATED: Unpacked pink_rows from summary_stats
-        red_rows, blue_rows, yellow_rows, green_rows, pink_rows, elapsed = summary_stats
+        green_rows, red_rows, purple_rows, yellow_rows, blue_rows, gray_rows, elapsed = summary_stats
         st.divider()
         st.header("📊 Comparison Summary")
         st.markdown(f"""
-        **🟥 RED:** {red_rows} &nbsp;&nbsp; **🟦 BLUE:** {blue_rows} &nbsp;&nbsp; **🟨 YELLOW:** {yellow_rows} &nbsp;&nbsp; **🟩 GREEN:** {green_rows} &nbsp;&nbsp; **🟪 PURPLE:** {pink_rows}
+        **🟩 GREEN:** {green_rows} &nbsp;&nbsp; **🟥 RED:** {red_rows} &nbsp;&nbsp; **🟪 PURPLE:** {purple_rows} &nbsp;&nbsp; **🟨 YELLOW:** {yellow_rows} &nbsp;&nbsp; **🔵 BLUE:** {blue_rows} &nbsp;&nbsp; **⬜ GREY:** {gray_rows}
         
         ⏱️ **Total time:** {elapsed:.2f} seconds
         """)

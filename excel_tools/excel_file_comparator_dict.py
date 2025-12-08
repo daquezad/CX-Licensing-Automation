@@ -5,7 +5,8 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 from openpyxl import load_workbook
-
+from openpyxl.styles import PatternFill
+from openpyxl import Workbook
 # Add parent directory to path for relative imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -32,6 +33,52 @@ class ExcelFileComparator:
         except Exception as e:
             self.logger.error("Error loading file %s: %s", file_path, e)
             raise
+
+    def save_df_with_flag_highlight(self, df_pre_ea, output_path):
+        """
+        Save df_pre_ea to Excel and highlight rows based on 'Flag' column values.
+
+        Color mapping:
+        - GREEN: 🟩 (green fill)
+        - RED: 🟥 (red fill)
+        - PURPLE: 🟪 (purple fill)
+        - YELLOW: 🟨 (yellow fill)
+        - BLUE: 🔵 (blue fill)
+        - GREY: ⬜ (grey fill)
+        """
+
+        # Define fill colors for each flag
+        fill_colors = {
+            'GREEN': PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'),  # light green
+            'RED': PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'),    # light red
+            'PURPLE': PatternFill(start_color='D9D2E9', end_color='D9D2E9', fill_type='solid'), # light purple
+            'YELLOW': PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid'), # light yellow
+            'BLUE': PatternFill(start_color='BDD7EE', end_color='BDD7EE', fill_type='solid'),   # light blue
+            'GREY': PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid'),   # light grey
+            '': None  # No fill for empty flags
+        }
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "PRE_EA_Report"
+
+        # Write DataFrame headers
+        ws.append(list(df_pre_ea.columns))
+
+        # Write DataFrame rows with fill based on 'Flag'
+        for idx, row in df_pre_ea.iterrows():
+            ws.append(row.tolist())
+            flag = row.get('Flag', '')
+            fill = fill_colors.get(flag, None)
+            if fill:
+                # Highlight the entire row (all columns)
+                for col_idx in range(1, len(df_pre_ea.columns) + 1):
+                    ws.cell(row=ws.max_row, column=col_idx).fill = fill
+
+        # Save the workbook
+        wb.save(output_path)
+        print(f"DataFrame saved to {output_path} with row highlights based on 'Flag'.")
+        
     def find_common_items_in_columns(self,
         df1: pd.DataFrame,
         column1_name: str,
@@ -54,6 +101,7 @@ class ExcelFileComparator:
         return list(common_items_set)
 
     def compute_licensing_files(self, pre_ea_path, cssm_path, pid_to_skus_map):
+        start_time = datetime.now()
         logger = self.logger
         logger.info("Starting comparison: pre_ea=%s cssm=%s", pre_ea_path, cssm_path)
         start_time = datetime.now()
@@ -119,7 +167,7 @@ class ExcelFileComparator:
                 dictionary_filter[source_identifier] = []
             for sku in unique_skus:
                 dictionary_filter[source_identifier].append(sku) # Just call append(), no assignment
-        
+
         common_codes_dictionary = {}
         for source_id, sku_list in dictionary_filter.items():
             # print(f"Source Identifier: {source_id}")
@@ -136,112 +184,79 @@ class ExcelFileComparator:
                 mask_source_id_cssm = df_cssm['Source Identifier'].astype(str).str.strip() == str(source_id).strip()
                 combined_mask_cssm = mask_sku_cssm & mask_source_id_cssm
                 common_codes_dictionary[source_id][sku] = (df_pre_ea[combined_mask], df_cssm[combined_mask_cssm])
+                # print(len(df_pre_ea[combined_mask]),len(df_cssm[combined_mask_cssm]))
 
-        # print(common_codes_dictionary["98877762"]["C1A1TN9300XF-5Y"])
-# check point
+        for source_id, sku_dict in common_codes_dictionary.items():
+            for sku, (df_pre_ea_subset, df_cssm_subset) in sku_dict.items():
+                for pre_ea_index, pre_ea_row in df_pre_ea_subset.iterrows():
+                    pre_ea_quantity = pre_ea_row['Quantity']
+                    pre_ea_exp_date_str = pre_ea_row['Expiration Date']
+                    pre_ea_exp_date = standardize_date(pre_ea_exp_date_str)
+                    matched = False
 
-        # Create a loop that will iterate in common_codes_directionary and make some conditions
-        ian = 0
-        for source_id, skus_and_data in common_codes_dictionary.items():
-            for item in common_codes_dictionary[source_id]:
-                # print(f"{source_id} saludso -> {skus_and_data[item][1]}")
-                pre_ea_row = skus_and_data[item][0]
-                cssm = skus_and_data[item][1]
-                
-                for pre_row in pre_ea_row.iterrows():
-                    print(pre_row)
-                
-            # create condition to check Pre ea migrated pid  and sku in df_cssm_filtered
-                # if pre_ea_row['Pre EA Migrated Pid'] not in df_cssm_filtered['SKU'].values:
-                #     df_pre_ea.at[idx, 'Flag'] = 'RED'
-                #     df_pre_ea.at[idx, 'Logging Info'] = "🟥 FLAG RED: SKU not found in CSSM for this ALC Order Number."
-                #     continue    
+                    for cssm_index, cssm_row in df_cssm_subset.iterrows():
+                        cssm_available = cssm_row['Available To Use']
+                        if cssm_available == pre_ea_quantity:
+                            if pre_ea_exp_date:
+                                # Valid expiration date: set green flag
+                                print(f"Green: source_id={source_id}, sku={sku}, Quantity={pre_ea_quantity}, Available To Use={cssm_available}, Expiration Date={pre_ea_exp_date_str}")
+                                # Example of setting flags in df_pre_ea:
+                                df_pre_ea.at[pre_ea_index, 'Flag'] = 'GREEN'
+                                df_pre_ea.at[pre_ea_index, 'Logging Info'] = "🟩 FLAG GREEN: Quantity and valid Expiration Date match found."
+                            else:
+                                # Invalid or empty expiration date: set yellow flag
+                                print(f"Yellow: source_id={source_id}, sku={sku}, Quantity={pre_ea_quantity}, Available To Use={cssm_available}, Expiration Date invalid or empty")
+                                df_pre_ea.at[pre_ea_index, 'Flag'] = 'YELLOW'
+                                df_pre_ea.at[pre_ea_index, 'Logging Info'] = "🟨 FLAG YELLOW: Quantity match found but Expiration Date invalid or empty."
+                            matched = True
+                            break  # Stop checking CSSM rows once a match is found
 
+                    if not matched:
+                        # No matching Available To Use found for this Pre-EA quantity
+                        print(f"Blue: source_id={source_id}, sku={sku}, Quantity={pre_ea_quantity} (no matching Available To Use found)")
+                        df_pre_ea.at[pre_ea_index, 'Flag'] = 'BLUE'
+                        df_pre_ea.at[pre_ea_index, 'Logging Info'] = "🔵 FLAG BLUE: No matching Available To Use found."
 
-        # for source_identifier, sku_data in common_codes_dictionary.items():        
-        #     for sku, (df_pre_ea_filtered, df_cssm_filtered) in sku_data.items():
-        #         if len(df_pre_ea_filtered) != 0 and len(df_cssm_filtered) != 0:
-        #             for idx, pre_ea_row in df_pre_ea_filtered.iterrows():
-        #             # create condition to check Pre ea migrated pid  and sku in df_cssm_filtered
-        #                 if pre_ea_row['Pre EA Migrated Pid'] not in df_cssm_filtered['SKU'].values:
-        #                     df_pre_ea.at[idx, 'Flag'] = 'RED'
-        #                     df_pre_ea.at[idx, 'Logging Info'] = "🟥 FLAG RED: SKU not found in CSSM for this ALC Order Number."
-        #                     continue    
-        #             for idx, pre_ea_row in df_pre_ea_filtered.items():
-        #                 pre_ea_exp_date_for_check = standardize_date(pre_ea_row['Expiration Date'], in_format="%Y-%m-%d %H:%M:%S")
-        #                 if not pre_ea_exp_date_for_check:
-        #                     df_pre_ea.at[idx, 'Flag'] = 'YELLOW'
-        #                     df_pre_ea.at[idx, 'Logging Info'] = "🟨 FLAG YELLOW: Invalid or empty Expiration Date."
-        #                     continue
-
-        #             # Mark rows as used in df_cssm_filtred subscription End date is empty or invalid 
-        #                 for cssm_idx, cssm_row in df_cssm_filtered.iterrows():
-        #                     cssm_exp = cssm_row['Subscription End Date']
-        #                     cssm_exp_date_for_check = standardize_date(cssm_exp, in_format="%Y-%m-%d %H:%M:%S")
-        #                     if not cssm_exp_date_for_check:
-        #                         df_cssm_filtered.at[cssm_idx, 'Used'] = 'YES'
-
-        #             # clean used and flagged rows
-        #             mask_flag = df_cssm_filtered['Used'] == ''
-        #             df_cssm_filtered = df_cssm_filtered[mask_flag]
-        #             mask_flag = df_pre_ea_filtered['Flag'] == ''
-        #             df_pre_ea_filtered = df_pre_ea_filtered[mask_flag]
-            
-        #             for idx, pre_ea_row in df_pre_ea_filtered.iterrows():
-        #                 pre_ea_qty = pre_ea_row['Quantity']
-        #                 pre_ea_exp_date_for_check = standardize_date(pre_ea_row['Expiration Date'], in_format="%Y-%m-%d %H:%M:%S")
-        #                 for cssm_idx, cssm_row in df_cssm_filtered.iterrows():
-        #                     cssm_qty = cssm_row['Available To Use']
-        #                     cssm_exp = standardize_date(cssm_row['Subscription End Date'])
-        # #                     # check if quantity is equal and date is valid 
-        #                     if cssm_qty == pre_ea_qty   and (pre_ea_exp_date_for_check and cssm_exp and pre_ea_exp_date_for_check <= cssm_exp) and cssm_row['Used'] != 'YES':
-        #                         df_cssm.at[cssm_idx, 'Used'] = 'YES'
-        #                         # flag green
-        #                         df_pre_ea.at[idx, 'Flag'] = 'GREEN'
-        #                         df_pre_ea.at[idx, 'Logging Info'] = "🟩 FLAG GREEN: Quantity and Expiration Date match found."
-
-
-                    # # Check leftouvers in the qty coincidences
-                    # for idx, pre_ea_row in df_pre_ea_filtered.iterrows():
-                    #     # compare quantity of cssm filtred and validate that date is ok
-                    #     pre_ea_qty = pre_ea_row['Quantity']
-                    #     pre_ea_exp = pre_ea_row['Expiration Date']
-                    #     pre_ea_exp_date_for_check = standardize_date(pre_ea_exp, in_format="%Y-%m-%d %H:%M:%S")
-                    #     # # Exclude used rows 
-                    #     mask_flag = df_cssm['Used'] == ''
-                    #     df_cssm_filtered = df_cssm_filtered[mask_flag]
+        # Loop over common_codes_dictionary again to process BLUE flags
+        for source_id, sku_dict in common_codes_dictionary.items():
+            for sku, (df_pre_ea_subset, df_cssm_subset) in sku_dict.items():
+                # Filter BLUE flagged rows in df_pre_ea_subset
+                mask_source = (df_pre_ea['ALC Order Number'].astype(str).str.strip() == str(source_id).strip())
+                mask_sku = (df_pre_ea['Pre EA Migrated Pid'].astype(str).str.strip() == str(sku).strip())
+                mask_flag_blue = (df_pre_ea['Flag'] == 'BLUE')
+                blue_rows = df_pre_ea[mask_source & mask_sku & mask_flag_blue]
+                if blue_rows.empty:
                     
-                    #     # get sum of available to use in cssm filtered
-                    #     total_cssm_qty = df_cssm_filtered['Available To Use'].sum()
-                    #     # get oldest expiration date in cssm filtered
-                    #     cssm_filtered_exp_dates = df_cssm_filtered['Subscription End Date'].apply(lambda x: standardize_date(x, in_format="%Y-%m-%d %H:%M:%S"))
-                    #     oldest_cssm_exp_date = cssm_filtered_exp_dates.min()
+                    continue  # No BLUE rows to process for this sku and source_id
+                # Sum the Quantity of BLUE rows
+                total_blue_quantity = blue_rows['Quantity'].sum()
 
-                    #     if total_cssm_qty < pre_ea_qty:
-                    #         df_pre_ea.at[idx, 'Flag'] = 'RED'
-                    #         df_pre_ea.at[idx, 'Logging Info'] = "🟥 FLAG RED: Cumulative Quantity match NOT found."
-                    #     #compare if early cssm before pre_ea expiration date
-                    #     elif oldest_cssm_exp_date and pre_ea_exp_date_for_check and oldest_cssm_exp_date < pre_ea_exp_date_for_check:
-                    #         df_pre_ea.at[idx, 'Flag'] = 'YELLOW'
-                    #         df_pre_ea.at[idx, 'Logging Info'] = "🟨 FLAG YELLOW: Cumulative Quantity match found but Expiration Date issues."
-                    #     else:
-                    #         df_pre_ea.at[idx, 'Flag'] = 'GREEN'
-                    #         df_pre_ea.at[idx, 'Logging Info'] = "🟩 FLAG GREEN: Cumulative Quantity and Expiration Date match found."
-                    #         # mark used in cssm filtered
-                    #         for cssm_idx, cssm_row in df_cssm_filtered.iterrows():
-                    #             df_cssm.at[cssm_idx, 'Used'] = 'YES'
-                    #             # counte green flags
+                # Sum the Quantity in CSSM subset for this sku and source_id
+                total_cssm_quantity = df_cssm_subset['Available To Use'].sum()  # or 'Quantity' if that column exists; adjust accordingly
+                # Compare totals
+                if total_blue_quantity < total_cssm_quantity:
+                    
+                    # Update all BLUE rows to GREY in prea 
+                    for pre_ea_index in blue_rows.index:
+                        df_pre_ea.at[pre_ea_index, 'Flag'] = 'GREY'
+                        df_pre_ea.at[pre_ea_index, 'Logging Info'] = "⬜ FLAG GREY: Total BLUE Quantity less than CSSM Quantity."
+                        # print(f"Grey: source_id={source_id}, sku={sku}, pre_ea_index={pre_ea_index}, Total BLUE Quantity={total_blue_quantity}, CSSM Quantity={total_cssm_quantity}")
+        # check point
+       
 
     # counte green flags    
         green_count = df_pre_ea['Flag'].value_counts().get('GREEN', 0)
-        print(f"Number of GREEN rows: {green_count}")
+        print(f"🟩 Number of GREEN rows: {green_count}")
         red_count = df_pre_ea['Flag'].value_counts().get('RED', 0)
-        print(f"Number of RED rows: {red_count}")
+        print(f"🟥 Number of RED rows: {red_count}")
         purple_count = df_pre_ea['Flag'].value_counts().get('PURPLE', 0)
-        print(f"Number of PURPLE rows: {purple_count}")
+        print(f"🟪 Number of PURPLE rows: {purple_count}")
         yellow_count = df_pre_ea['Flag'].value_counts().get('YELLOW', 0)
-        print(f"Number of YELLOW rows: {yellow_count}")
-
+        print(f"🟨 Number of YELLOW rows: {yellow_count}")
+        blue_count = df_pre_ea['Flag'].value_counts().get('BLUE', 0)
+        print(f"🔵 Number of BLUE rows: {blue_count}")
+        gray_count = df_pre_ea['Flag'].value_counts().get('GREY', 0)
+        print(f"⬜ Number of GREY rows: {gray_count}")
 
         print(len(df_pre_ea))
         # Prepare output workbook
@@ -254,17 +269,9 @@ class ExcelFileComparator:
         # Save df_pre_ea to the desired output Excel file
         df_pre_ea.to_excel(out_path, index=False)
 
-        # (Optional) If you want to do further processing with openpyxl:
-        from openpyxl import load_workbook
+        self.save_df_with_flag_highlight(df_pre_ea, out_path)
+        return out_path, green_count, red_count, purple_count, yellow_count, blue_count, gray_count, (datetime.now() - start_time).total_seconds()
 
-        wb = load_workbook(out_path)
-        ws = wb.active
-
-
-        # logger.info("Loaded PRE-EA rows: %d | CSSM rows: %d", len(pre_ea), len(cssm))
-
-        # Initialize counters for row colors
-        red_rows, blue_rows, yellow_rows, green_rows, pink_rows = 0, 0, 0, 0, 0
 
 # Test basic functionality
 if __name__ == "__main__":
@@ -281,6 +288,10 @@ if __name__ == "__main__":
     # Initialize comparator
     comparator = ExcelFileComparator()
     comparator.compute_licensing_files(pre_ea_path, cssm_path, pid_to_skus_map)
+
+
+
+
 
 
 
