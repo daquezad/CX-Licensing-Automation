@@ -222,6 +222,7 @@ class ExcelFileComparator:
 
                     for cssm_index, cssm_row in df_cssm_subset.iterrows():
                         cssm_available = cssm_row['Available To Use']
+                        cssm_virtual_account = cssm_row['Virtual Account']
                         if cssm_available == pre_ea_quantity:
                             if pre_ea_exp_date:
                                 # Valid expiration date: set green flag
@@ -229,11 +230,13 @@ class ExcelFileComparator:
                                 # Example of setting flags in df_pre_ea:
                                 df_pre_ea.at[pre_ea_index, 'Flag'] = 'GREEN'
                                 df_pre_ea.at[pre_ea_index, 'Logging Info'] = "🟩 FLAG GREEN: Quantity and valid Expiration Date match found."
+                                df_pre_ea.at[pre_ea_index, 'EA Virtual Account'] = cssm_virtual_account
                             else:
                                 # Invalid or empty expiration date: set yellow flag
                                 print(f"Yellow: source_id={source_id}, sku={sku}, Quantity={pre_ea_quantity}, Available To Use={cssm_available}, Expiration Date invalid or empty")
                                 df_pre_ea.at[pre_ea_index, 'Flag'] = 'YELLOW'
                                 df_pre_ea.at[pre_ea_index, 'Logging Info'] = "🟨 FLAG YELLOW: Quantity match found but Expiration Date invalid or empty."
+                                df_pre_ea.at[pre_ea_index, 'EA Virtual Account'] = cssm_virtual_account
                             matched = True
                             break  # Stop checking CSSM rows once a match is found
 
@@ -259,6 +262,12 @@ class ExcelFileComparator:
 
                 # Sum the Quantity in CSSM subset for this sku and source_id
                 total_cssm_quantity = df_cssm_subset['Available To Use'].sum()  # or 'Quantity' if that column exists; adjust accordingly
+                try:
+                    cssm_virtual_account = df_cssm_subset['Virtual Account'].iloc[0]
+                    # print(cssm_virtual_account, )
+                except:
+                    print("failed")
+                # print(cssm_virtual_account)
                 # Compare totals
                 if total_blue_quantity < total_cssm_quantity:
                     
@@ -266,7 +275,7 @@ class ExcelFileComparator:
                     for pre_ea_index in blue_rows.index:
                         df_pre_ea.at[pre_ea_index, 'Flag'] = 'GREY'
                         df_pre_ea.at[pre_ea_index, 'Logging Info'] = "⬜ FLAG GREY: Total BLUE Quantity less than CSSM Quantity."
-                        # print(f"Grey: source_id={source_id}, sku={sku}, pre_ea_index={pre_ea_index}, Total BLUE Quantity={total_blue_quantity}, CSSM Quantity={total_cssm_quantity}")
+                        df_pre_ea.at[pre_ea_index, 'EA Virtual Account'] = cssm_virtual_account
         # check point
        
 
