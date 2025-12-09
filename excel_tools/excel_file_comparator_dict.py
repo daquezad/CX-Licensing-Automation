@@ -142,8 +142,34 @@ class ExcelFileComparator:
 
         # Normalize pre_ea_migrated_pid_str column to valid sku (usig dictionary)
         if pid_to_skus_map is not None:
-            df_pre_ea['Pre EA Migrated Pid'] = df_pre_ea['Pre EA Migrated Pid'].map(pid_to_skus_map).fillna(df_pre_ea['Pre EA Migrated Pid'])
+            # df_pre_ea['Pre EA Migrated Pid'] = df_pre_ea['Pre EA Migrated Pid'].map(pid_to_skus_map).fillna(df_pre_ea['Pre EA Migrated Pid'])
+            # Store the original 'Pre EA Migrated Pid' column before any modifications
+            original_pids = df_pre_ea['Pre EA Migrated Pid'].copy()
 
+            # Apply the mapping from pid_to_skus_map
+            # Values not found in the map will become NaN
+            df_pre_ea['Pre EA Migrated Pid'] = df_pre_ea['Pre EA Migrated Pid'].map(pid_to_skus_map)
+
+            # Define a function to process the mapped values:
+            # 1. If it's a list containing a single element, extract that element.
+            # 2. If it's a list containing an empty string [''], treat it as pd.NA.
+            # 3. Otherwise, return the value as is (could be NaN, or other list structures if intended).
+            def process_mapped_pid(value):
+                if isinstance(value, list):
+                    if len(value) == 1:
+                        # Extract the single element from the list
+                        return value[0]
+                    elif value == ['']:
+                        # Treat [''] as missing data
+                        return pd.NA
+                return value
+
+            # Apply the processing function to the mapped column
+            df_pre_ea['Pre EA Migrated Pid'] = df_pre_ea['Pre EA Migrated Pid'].apply(process_mapped_pid)
+
+            # Fill any remaining NaN values (from original map or from [''] conversion)
+            # with the corresponding original PID from the 'original_pids' series.
+            df_pre_ea['Pre EA Migrated Pid'] = df_pre_ea['Pre EA Migrated Pid'].fillna(original_pids)
         # FLAG RED for non-matching No SKU (or mapped exception)
         try:
             common_skus = self.find_common_items_in_columns(df_pre_ea, 'Pre EA Migrated Pid', df_cssm, 'SKU')
