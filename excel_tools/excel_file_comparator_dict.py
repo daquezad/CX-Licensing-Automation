@@ -295,7 +295,6 @@ class ExcelFileComparator:
 
         print(len(df_pre_ea))
         # Prepare output workbook
-
         output_dir = self.output_dir
         base_name = os.path.basename(pre_ea_path)
         out_name = base_name.replace('.xlsx', '_compared.xlsx')
