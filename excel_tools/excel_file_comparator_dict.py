@@ -211,7 +211,7 @@ class ExcelFileComparator:
                 combined_mask_cssm = mask_sku_cssm & mask_source_id_cssm
                 common_codes_dictionary[source_id][sku] = (df_pre_ea[combined_mask], df_cssm[combined_mask_cssm])
                 # print(len(df_pre_ea[combined_mask]),len(df_cssm[combined_mask_cssm]))
-
+        
         for source_id, sku_dict in common_codes_dictionary.items():
             for sku, (df_pre_ea_subset, df_cssm_subset) in sku_dict.items():
                 for pre_ea_index, pre_ea_row in df_pre_ea_subset.iterrows():
@@ -223,11 +223,13 @@ class ExcelFileComparator:
                     for cssm_index, cssm_row in df_cssm_subset.iterrows():
                         cssm_available = cssm_row['Available To Use']
                         cssm_virtual_account = cssm_row['Virtual Account']
-                        if cssm_available == pre_ea_quantity:
+                        if cssm_available == pre_ea_quantity and not common_codes_dictionary[source_id][sku][1].loc[cssm_index, 'Used'] == 'Yes':
                             if pre_ea_exp_date:
                                 # Valid expiration date: set green flag
                                 print(f"Green: source_id={source_id}, sku={sku}, Quantity={pre_ea_quantity}, Available To Use={cssm_available}, Expiration Date={pre_ea_exp_date_str}")
                                 # Example of setting flags in df_pre_ea:
+                                # df_to_update = common_codes_dictionary[source_id][sku][1]
+                                common_codes_dictionary[source_id][sku][1].loc[cssm_index, 'Used'] = 'Yes'
                                 df_pre_ea.at[pre_ea_index, 'Flag'] = 'GREEN'
                                 df_pre_ea.at[pre_ea_index, 'Logging Info'] = "🟩 FLAG GREEN: Quantity and valid Expiration Date match found."
                                 df_pre_ea.at[pre_ea_index, 'EA Virtual Account'] = cssm_virtual_account
@@ -255,29 +257,42 @@ class ExcelFileComparator:
                 mask_flag_blue = (df_pre_ea['Flag'] == 'BLUE')
                 blue_rows = df_pre_ea[mask_source & mask_sku & mask_flag_blue]
                 if blue_rows.empty:
-                    
                     continue  # No BLUE rows to process for this sku and source_id
                 # Sum the Quantity of BLUE rows
                 total_blue_quantity = blue_rows['Quantity'].sum()
 
                 # Sum the Quantity in CSSM subset for this sku and source_id
-                total_cssm_quantity = df_cssm_subset['Available To Use'].sum()  # or 'Quantity' if that column exists; adjust accordingly
+                # total_cssm_quantity = df_cssm_subset['Available To Use'].sum()  # or 'Quantity' if that column exists; adjust accordingly
+
+                cssm_filter_not_used_yes = (df_cssm_subset['Used'] != 'Yes')
+
+                # Apply the filter and then sum 'Available To Use'
+                total_cssm_quantity = df_cssm_subset[cssm_filter_not_used_yes]['Available To Use'].sum()
+                if sku == 'C9400-DNA-A' and source_id == '112165002':
+                    print(sku, source_id, total_cssm_quantity, total_blue_quantity)
+                    print(df_cssm_subset[['Available To Use','Used']])
+                    
+
+
                 try:
                     cssm_virtual_account = df_cssm_subset['Virtual Account'].iloc[0]
-                    # print(cssm_virtual_account, )
                 except:
                     print("failed")
-                # print(cssm_virtual_account)
-                # Compare totals
-                if total_blue_quantity < total_cssm_quantity:
-                    
+
+                if total_blue_quantity == total_cssm_quantity:
                     # Update all BLUE rows to GREY in prea 
                     for pre_ea_index in blue_rows.index:
-                        df_pre_ea.at[pre_ea_index, 'Flag'] = 'GREY'
-                        df_pre_ea.at[pre_ea_index, 'Logging Info'] = "⬜ FLAG GREY: Total BLUE Quantity less than CSSM Quantity."
+                        df_pre_ea.at[pre_ea_index, 'Flag'] = 'GREEN'
+                        df_pre_ea.at[pre_ea_index, 'Logging Info'] = f"🟩FLAG GREEN: Total BLUE Quantity EQUAL CSSM Quantity EQ.{total_blue_quantity} cssm:{total_cssm_quantity}"
                         df_pre_ea.at[pre_ea_index, 'EA Virtual Account'] = cssm_virtual_account
+                elif total_blue_quantity < total_cssm_quantity:
+                    # print(total_blue_quantity,total_cssm_quantity,df_pre_ea['Pre EA Migrated Pid'] )
+                    for pre_ea_index in blue_rows.index:
+                        df_pre_ea.at[pre_ea_index, 'Flag'] = 'GREY'
+                        df_pre_ea.at[pre_ea_index, 'Logging Info'] = f"⬜ FLAG GREY: Total BLUE Quantity less than CSSM Quantity.{total_blue_quantity} cssm:{total_cssm_quantity}"
+                        df_pre_ea.at[pre_ea_index, 'EA Virtual Account'] = cssm_virtual_account
+                
         # check point
-       
 
     # counte green flags    
         green_count = df_pre_ea['Flag'].value_counts().get('GREEN', 0)
